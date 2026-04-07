@@ -1,0 +1,32 @@
+import csv
+
+RESOLUTION = 0.5  # change to 0.25 later
+OUTPUT_FILE = "weather_grid_points.csv"
+
+def frange(start, stop, step):
+    x = start
+    while x <= stop + 1e-9:
+        yield round(x, 6)
+        x += step
+
+rows = []
+
+for lat in frange(-90.0, 90.0, RESOLUTION):
+    for lon in frange(-180.0, 180.0, RESOLUTION):
+        grid_code = f"GRID_{RESOLUTION}_{lat}_{lon}"
+        rows.append({
+            "grid_code": grid_code,
+            "latitude": lat,
+            "longitude": lon,
+            "resolution_deg": RESOLUTION
+        })
+
+with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(
+        f,
+        fieldnames=["grid_code", "latitude", "longitude", "resolution_deg"]
+    )
+    writer.writeheader()
+    writer.writerows(rows)
+
+print(f"Wrote {len(rows)} grid points to {OUTPUT_FILE}")
