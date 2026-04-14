@@ -1,9 +1,13 @@
+from datetime import datetime, timezone
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
-import importlib
+from sqlalchemy import select, desc
 
-app = FastAPI(title="AURION Core API")
+from .core.database import SessionLocal
+from .core.database.models.weather import WeatherData
+
+app = FastAPI(title="Aurion Backend")
 
 app.add_middleware(
     CORSMiddleware,
@@ -13,27 +17,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Auto-discover modules
-def load_modules():
-    modules_path = Path(__file__).parent.parent.parent / "modules"
-    for module_dir in modules_path.iterdir():
-        if module_dir.is_dir():
-            routes_path = module_dir / "api" / "routes.py"
-            if routes_path.exists():
-                try:
-                    route_module = importlib.import_module(f"modules.{module_dir.name}.api.routes")
-                    if hasattr(route_module, "router"):
-                        app.include_router(route_module.router, prefix=f"/api/{module_dir.name}")
-                        print(f"✅ Loaded module: {module_dir.name}")
-                except Exception as e:
-                    print(f"⚠️ Failed to load {module_dir.name}: {e}")
 
-load_modules()
+@app.get("/globe/data")
+def get_globe_data():
+    db = SessionLocal()
+    try:
+        weather = db.execute(
+            select(WeatherData).order_by(desc(WeatherData.timestamp))
+        ).scalars().all()
+
+        return {
+            "weather": [
+                {
+                    "name": w.location,
+                    "temp": w.temperature_2m,
+                    "wind": w.wind_speed_10m,
+                    "precip": w.precipitation,
+                }
+                for w in weather
+            ],
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
+    finally:
+        db.close()
+
 
 @app.get("/")
-async def root():
-    return {"message": "AURION is running", "status": "active"}
+def root():
+    return {"message": "Aurion Backend is running ✅"}
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
