@@ -8,126 +8,135 @@ interface MainShellProps {
 }
 
 const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) => {
-  const [modulesOpen, setModulesOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(true);   // Right panel starts open
+  const [leftExpanded, setLeftExpanded] = useState(false);
+  const [rightOpen, setRightOpen] = useState(true);
+
+  const renderedLeft =
+    React.isValidElement(left)
+      ? React.cloneElement(left as React.ReactElement<any>, { expanded: leftExpanded })
+      : left;
 
   return (
-    <div style={{
-      width: '100vw',
-      height: '100vh',
-      background: '#05080f',
-      color: '#e0e7ff',
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column'
-    }}>
-      {/* Top Bar */}
-      <div style={{
-        height: '64px',
-        background: '#0a0f1c',
-        borderBottom: '1px solid #1e2a44',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 24px',
-        zIndex: 30
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ fontSize: '28px' }}>🌍</div>
-          <div>
-            <div style={{ fontSize: '22px', fontWeight: 700 }}>AURION</div>
-            <div style={{ fontSize: '11px', color: '#64748b' }}>
-              ANALYTICAL UNIFIED REAL-TIME INTELLIGENCE OBSERVATION NETWORK
-            </div>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setModulesOpen(!modulesOpen)}
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        background:
+          'radial-gradient(circle at top, rgba(22,36,70,0.38), transparent 28%), #05080f',
+        color: '#e0e7ff',
+        overflow: 'hidden',
+        position: 'relative',
+      }}
+    >
+      {left && (
+        <div
+          onMouseEnter={() => setLeftExpanded(true)}
+          onMouseLeave={() => setLeftExpanded(false)}
           style={{
-            marginLeft: '30px',
-            padding: '8px 16px',
-            background: '#1e2937',
-            border: '1px solid #334155',
-            borderRadius: '6px',
-            color: '#e0e7ff',
-            cursor: 'pointer'
+            position: 'absolute',
+            left: '0px',
+            top: '0px',
+            bottom: '0px',
+            width: leftExpanded ? '220px' : '56px',
+            background: 'rgba(3, 8, 18, 0.98)',
+            borderRight: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: '0px',
+            padding: leftExpanded ? '10px 8px' : '8px 6px',
+            zIndex: 80,
+            overflow: 'hidden',
+            transition: 'width 0.22s ease, padding 0.22s ease',
+            boxShadow: '8px 0 28px rgba(0,0,0,0.38)',
+            backdropFilter: 'blur(14px)',
+            boxSizing: 'border-box',
           }}
         >
-          {modulesOpen ? 'Hide Modules' : 'Modules'}
-        </button>
+          {renderedLeft}
+        </div>
+      )}
 
-        <div style={{ marginLeft: 'auto', color: '#22c55e' }}>● LOCAL • LIVE</div>
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          minWidth: 0,
+          overflow: 'hidden',
+          zIndex: 1,
+        }}
+      >
+        {center}
       </div>
 
-      {/* Main Content */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
-        {/* Left Modules (Overlay) */}
-        {modulesOpen && (
-          <div style={{
+      {right && (
+        <div
+          style={{
             position: 'absolute',
-            left: '24px',
-            top: '80px',
-            width: '260px',
-            background: '#0a0f1c',
-            border: '1px solid #1e2a44',
-            borderRadius: '8px',
-            padding: '16px',
-            zIndex: 40,
-            boxShadow: '0 10px 30px rgba(0,0,0,0.6)'
-          }}>
-            {left}
-          </div>
-        )}
-
-        {/* Globe - Takes remaining space */}
-        <div style={{ 
-          flex: 1, 
-          position: 'relative',
-          minWidth: 0,
-          overflow: 'hidden'
-        }}>
-          {center}
-        </div>
-
-        {/* Right Panel */}
-        {right && (
-          <div style={{
+            top: '0px',
+            right: '0px',
+            bottom: '0px',
             width: rightOpen ? '340px' : '0px',
-            background: '#0a0f1c',
-            borderLeft: rightOpen ? '1px solid #1e2a44' : 'none',
+            background: 'rgba(3, 8, 18, 0.985)',
+            borderLeft: rightOpen ? '1px solid rgba(255,255,255,0.10)' : 'none',
             overflow: 'hidden',
-            transition: 'width 0.3s ease',
-            zIndex: 20
-          }}>
-            <div style={{ width: '340px', height: '100%', overflowY: 'auto', padding: '20px' }}>
-              {right}
-            </div>
-          </div>
-        )}
-
-        {/* Right Panel Toggle Button */}
-        {right && (
-          <button
-            onClick={() => setRightOpen(!rightOpen)}
+            transition: 'width 0.24s ease',
+            zIndex: 90,
+            backdropFilter: 'blur(14px)',
+            boxShadow: '-8px 0 28px rgba(0,0,0,0.35)',
+          }}
+        >
+          <div
             style={{
-              position: 'absolute',
-              right: rightOpen ? '340px' : '0px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              background: '#1e2937',
-              border: '1px solid #334155',
-              color: '#e0e7ff',
-              padding: '12px 6px',
-              borderRadius: '6px 0 0 6px',
-              cursor: 'pointer',
-              zIndex: 25,
-              fontSize: '14px'
+              width: '340px',
+              height: '100%',
+              overflowY: 'auto',
+              padding: '20px',
+              boxSizing: 'border-box',
+              position: 'relative',
+              zIndex: 2,
+              background: 'rgba(3, 8, 18, 0.98)',
             }}
           >
-            {rightOpen ? '▶' : '◀'}
-          </button>
-        )}
-      </div>
+            {right}
+          </div>
+        </div>
+      )}
+
+      {right && (
+        <button
+          onClick={() => setRightOpen(!rightOpen)}
+          style={{
+            position: 'absolute',
+            right: rightOpen ? '340px' : '0px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            background: 'rgba(37, 54, 89, 0.96)',
+            border: '1px solid rgba(255,255,255,0.16)',
+            color: '#e0e7ff',
+            padding: '12px 7px',
+            borderRadius: '10px 0 0 10px',
+            cursor: 'pointer',
+            zIndex: 95,
+            fontSize: '14px',
+            transition: 'right 0.24s ease',
+          }}
+        >
+          {rightOpen ? '▶' : '◀'}
+        </button>
+      )}
+
+      {bottom && (
+        <div
+          style={{
+            position: 'absolute',
+            left: left ? (leftExpanded ? '236px' : '72px') : '18px',
+            right: right && rightOpen ? '356px' : '18px',
+            bottom: '16px',
+            zIndex: 85,
+            transition: 'left 0.22s ease, right 0.24s ease',
+          }}
+        >
+          {bottom}
+        </div>
+      )}
     </div>
   );
 };
