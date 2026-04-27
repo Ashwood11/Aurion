@@ -23,6 +23,85 @@ interface RightPanelProps {
   onClearAll: () => void;
 }
 
+const MINING_GROUP: LayerGroup = {
+  id: 'mining',
+  label: 'Mining Assets',
+  icon: '⛏',
+  color: '#facc15',
+  options: [
+    {
+      id: 'mining-all',
+      label: 'All Mining Assets',
+      description: 'Mines, smelters, refineries, plants, and mixed assets.',
+    },
+    {
+      id: 'mining-mines',
+      label: 'Mines',
+      description: 'Mine sites only.',
+    },
+    {
+      id: 'mining-smelters',
+      label: 'Smelters',
+      description: 'Metal smelting facilities.',
+    },
+    {
+      id: 'mining-refineries',
+      label: 'Refineries',
+      description: 'Commodity refining facilities.',
+    },
+    {
+      id: 'mining-plants',
+      label: 'Plants',
+      description: 'Processing and industrial plants.',
+    },
+    {
+      id: 'mining-mixed',
+      label: 'Mixed Assets',
+      description: 'Assets with more than one facility type.',
+    },
+    {
+      id: 'mining-copper',
+      label: 'Copper',
+    },
+    {
+      id: 'mining-gold',
+      label: 'Gold',
+    },
+    {
+      id: 'mining-iron',
+      label: 'Iron Ore',
+    },
+    {
+      id: 'mining-coal',
+      label: 'Coal',
+    },
+    {
+      id: 'mining-lithium',
+      label: 'Lithium',
+    },
+    {
+      id: 'mining-nickel',
+      label: 'Nickel',
+    },
+    {
+      id: 'mining-zinc',
+      label: 'Zinc',
+    },
+    {
+      id: 'mining-cobalt',
+      label: 'Cobalt',
+    },
+    {
+      id: 'mining-uranium',
+      label: 'Uranium',
+    },
+    {
+      id: 'mining-ree',
+      label: 'Rare Earths',
+    },
+  ],
+};
+
 export default function RightPanel({
   groups,
   selectedGroups,
@@ -31,9 +110,18 @@ export default function RightPanel({
   onToggleOption,
   onClearAll,
 }: RightPanelProps) {
-  const activeGroups = groups.filter((group) => selectedGroups.includes(group.id));
+  const mergedGroups = React.useMemo(() => {
+    const alreadyHasMining = groups.some((group) => group.id === 'mining');
 
-  const visibleGroups = activeGroups.length > 0 ? activeGroups : groups;
+    if (alreadyHasMining) {
+      return groups;
+    }
+
+    return [...groups, MINING_GROUP];
+  }, [groups]);
+
+  const activeGroups = mergedGroups.filter((group) => selectedGroups.includes(group.id));
+  const visibleGroups = activeGroups.length > 0 ? activeGroups : mergedGroups;
 
   return (
     <div
@@ -44,7 +132,6 @@ export default function RightPanel({
         color: '#e5e7eb',
       }}
     >
-      {/* Header */}
       <div style={{ marginBottom: '18px' }}>
         <div
           style={{
@@ -112,7 +199,6 @@ export default function RightPanel({
         </p>
       </div>
 
-      {/* Group selector */}
       <div
         style={{
           background: 'rgba(15,23,42,0.90)',
@@ -142,7 +228,7 @@ export default function RightPanel({
             gap: '10px',
           }}
         >
-          {groups.map((group) => {
+          {mergedGroups.map((group) => {
             const active = selectedGroups.includes(group.id);
 
             return (
@@ -155,7 +241,9 @@ export default function RightPanel({
                   gap: '10px',
                   padding: '12px',
                   borderRadius: '14px',
-                  border: `1px solid ${active ? `${group.color}55` : 'rgba(255,255,255,0.08)'}`,
+                  border: `1px solid ${
+                    active ? `${group.color}55` : 'rgba(255,255,255,0.08)'
+                  }`,
                   background: active
                     ? `linear-gradient(135deg, ${group.color}1f, rgba(15,23,42,0.96))`
                     : 'rgba(2,6,23,0.72)',
@@ -174,7 +262,9 @@ export default function RightPanel({
                     display: 'grid',
                     placeItems: 'center',
                     background: active ? `${group.color}24` : 'rgba(255,255,255,0.04)',
-                    border: `1px solid ${active ? `${group.color}45` : 'rgba(255,255,255,0.08)'}`,
+                    border: `1px solid ${
+                      active ? `${group.color}45` : 'rgba(255,255,255,0.08)'
+                    }`,
                     fontSize: '16px',
                   }}
                 >
@@ -210,7 +300,6 @@ export default function RightPanel({
         </div>
       </div>
 
-      {/* Options list */}
       <div
         style={{
           flex: 1,
@@ -223,7 +312,11 @@ export default function RightPanel({
             key={group.id}
             style={{
               background: 'rgba(15,23,42,0.92)',
-              border: `1px solid ${selectedGroups.includes(group.id) ? `${group.color}35` : 'rgba(255,255,255,0.08)'}`,
+              border: `1px solid ${
+                selectedGroups.includes(group.id)
+                  ? `${group.color}35`
+                  : 'rgba(255,255,255,0.08)'
+              }`,
               borderRadius: '16px',
               padding: '14px',
               marginBottom: '14px',
@@ -292,7 +385,9 @@ export default function RightPanel({
                       gap: '12px',
                       padding: '11px 12px',
                       borderRadius: '12px',
-                      border: `1px solid ${checked ? `${group.color}50` : 'rgba(255,255,255,0.08)'}`,
+                      border: `1px solid ${
+                        checked ? `${group.color}50` : 'rgba(255,255,255,0.08)'
+                      }`,
                       background: checked
                         ? `linear-gradient(90deg, ${group.color}18, rgba(2,6,23,0.88))`
                         : 'rgba(2,6,23,0.70)',
@@ -307,7 +402,9 @@ export default function RightPanel({
                         height: '18px',
                         minWidth: '18px',
                         borderRadius: '6px',
-                        border: `1px solid ${checked ? group.color : 'rgba(255,255,255,0.25)'}`,
+                        border: `1px solid ${
+                          checked ? group.color : 'rgba(255,255,255,0.25)'
+                        }`,
                         background: checked ? group.color : 'transparent',
                         display: 'grid',
                         placeItems: 'center',
@@ -332,6 +429,7 @@ export default function RightPanel({
                       >
                         {option.label}
                       </div>
+
                       {option.description && (
                         <div
                           style={{
@@ -352,7 +450,6 @@ export default function RightPanel({
         ))}
       </div>
 
-      {/* Summary */}
       <div
         style={{
           marginTop: '14px',
@@ -386,7 +483,7 @@ export default function RightPanel({
               gap: '8px',
             }}
           >
-            {groups.flatMap((group) =>
+            {mergedGroups.flatMap((group) =>
               group.options
                 .filter((option) => selectedOptions.includes(option.id))
                 .map((option) => (

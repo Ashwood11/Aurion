@@ -23,6 +23,7 @@ export interface WeatherPoint {
   temp: number | null;
   color: string;
   size: number;
+  layerKind?: 'weather';
 }
 
 export interface Airport {
@@ -50,6 +51,95 @@ export interface AirportPoint {
   gps_code?: string | null;
   scheduled_service?: string | null;
   distance_km?: number | null;
+  layerKind: 'airport';
+}
+
+export interface Port {
+  id: string;
+  name: string;
+  alt_name?: string | null;
+  unlocode?: string | null;
+  country_code?: string | null;
+  water_body?: string | null;
+  lat: number;
+  lng: number;
+  port_type?: string | null;
+  size_class?: string | null;
+  harbor_use?: string | null;
+  tidal_range?: number | null;
+  channel_depth?: number | null;
+  anchorage_depth?: number | null;
+  cargo_pier_depth?: number | null;
+  max_vessel_length?: number | null;
+  max_vessel_beam?: number | null;
+  max_vessel_draft?: number | null;
+  shelter_afforded?: string | null;
+  has_container?: boolean | null;
+  has_oil_terminal?: boolean | null;
+  has_lng_terminal?: boolean | null;
+  significance_score?: number | null;
+}
+
+export interface PortPoint {
+  id: string;
+  lat: number;
+  lng: number;
+  color: string;
+  size: number;
+  name: string;
+  alt_name?: string | null;
+  unlocode?: string | null;
+  country_code?: string | null;
+  water_body?: string | null;
+  port_type?: string | null;
+  size_class?: string | null;
+  harbor_use?: string | null;
+  tidal_range?: number | null;
+  channel_depth?: number | null;
+  anchorage_depth?: number | null;
+  cargo_pier_depth?: number | null;
+  max_vessel_length?: number | null;
+  max_vessel_beam?: number | null;
+  max_vessel_draft?: number | null;
+  shelter_afforded?: string | null;
+  has_container?: boolean | null;
+  has_oil_terminal?: boolean | null;
+  has_lng_terminal?: boolean | null;
+  significance_score?: number | null;
+  layerKind: 'port';
+}
+
+export interface MiningAsset {
+  id: number;
+  name: string;
+  entityType: string;
+  lat: number;
+  lng: number;
+  country?: string | null;
+  primaryCommodity: string;
+  commodityGroup?: string | null;
+  allCommodities: string[];
+  assetTypeRaw?: string | null;
+  confidenceFactor?: string | null;
+  importanceScore?: number | null;
+}
+
+export interface MiningAssetPoint {
+  id: number;
+  lat: number;
+  lng: number;
+  color: string;
+  size: number;
+  name: string;
+  entityType: string;
+  country?: string | null;
+  primaryCommodity: string;
+  commodityGroup?: string | null;
+  allCommodities: string[];
+  assetTypeRaw?: string | null;
+  confidenceFactor?: string | null;
+  importanceScore?: number | null;
+  layerKind: 'mining';
 }
 
 export interface PlaneApiRow {
@@ -95,3 +185,5 @@ export interface PlanePoint {
   status?: string | null;
   bearing_deg?: number | null;
 }
+
+export type GlobePoint = WeatherPoint | AirportPoint | PortPoint | MiningAssetPoint;

@@ -1,96 +1,49 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Globe from 'react-globe.gl';
 import { useGlobeData } from './useGlobeData';
+import {
+  getDataAltitudeForZoomBand,
+  getLayerRenderCaps,
+  getZoomAltitudeMultiplier,
+  getZoomBand,
+  getZoomRadiusMultiplier,
+  type LayerQuality,
+} from './helpers/zoom';
+import { filterVisibleGlobePoints } from './helpers/filterVisiblePoints';
+import {
+  sortAirportsByImportance,
+  sortPlanesByImportance,
+  sortPortsByImportance,
+} from './helpers/sortGlobePoints';
+import { createPlaneElement } from './helpers/createPlaneElement';
+import { reducePlanesForZoom } from './helpers/reducePlanesForZoom';
+import DebugPanel from './panels/DebugPanel';
+import AirportInfoPanel from './panels/AirportInfoPanel';
+import PortInfoPanel from './panels/PortInfoPanel';
+import PlaneInfoPanel from './panels/PlaneInfoPanel';
+import GlobeSettingsPanel from './panels/GlobeSettingsPanel';
 import type {
   AirportPoint,
   CountryFeature,
+  GlobePoint,
   GlobeViewProps,
+  MiningAssetPoint,
   PlanePoint,
-  WeatherPoint,
+  PortPoint,
 } from './types';
 
-function isPointFrontFacing(
-  pointLat: number,
-  pointLng: number,
-  viewLat: number,
-  viewLng: number
-): boolean {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-
-  const lat1 = toRad(pointLat);
-  const lon1 = toRad(pointLng);
-  const lat2 = toRad(viewLat);
-  const lon2 = toRad(viewLng);
-
-  const x1 = Math.cos(lat1) * Math.cos(lon1);
-  const y1 = Math.cos(lat1) * Math.sin(lon1);
-  const z1 = Math.sin(lat1);
-
-  const x2 = Math.cos(lat2) * Math.cos(lon2);
-  const y2 = Math.cos(lat2) * Math.sin(lon2);
-  const z2 = Math.sin(lat2);
-
-  return x1 * x2 + y1 * y2 + z1 * z2 > 0;
+interface GlobeViewSettingsProps {
+  showSettings?: boolean;
+  setShowSettings?: (value: boolean) => void;
 }
 
-function reducePlanesForZoom(planes: PlanePoint[], altitude: number): PlanePoint[] {
-  if (planes.length === 0) return planes;
+const MINING_RENDER_CAP = 3500;
 
-  let cellSize = 0;
-  let maxPlanes = Infinity;
-
-  if (altitude >= 1) {
-    cellSize = 1;
-    maxPlanes = 1500;
-  } else if (altitude >= .8) {
-    cellSize = 6;
-    maxPlanes = 260;
-  } else if (altitude >= .6) {
-    cellSize = 4;
-    maxPlanes = 420;
-  } else if (altitude >= .4) {
-    cellSize = 2.5;
-    maxPlanes = 700;
-  } else {
-    return planes;
-  }
-
-  const buckets = new Map<string, PlanePoint>();
-
-  for (const plane of planes) {
-    const latKey = Math.floor((plane.lat + 90) / cellSize);
-    const lngKey = Math.floor((plane.lng + 180) / cellSize);
-    const key = `${latKey}:${lngKey}`;
-
-    const existing = buckets.get(key);
-
-    if (!existing) {
-      buckets.set(key, plane);
-      continue;
-    }
-
-    const existingSpeed = existing.ground_speed_kts ?? 0;
-    const currentSpeed = plane.ground_speed_kts ?? 0;
-    const existingAlt = existing.altitude_ft ?? 0;
-    const currentAlt = plane.altitude_ft ?? 0;
-
-    if (currentSpeed > existingSpeed || currentAlt > existingAlt) {
-      buckets.set(key, plane);
-    }
-  }
-
-  const reduced = Array.from(buckets.values());
-
-  if (reduced.length <= maxPlanes) {
-    return reduced;
-  }
-
-  return reduced.slice(0, maxPlanes);
-}
-
-const GlobeView: React.FC<GlobeViewProps> = ({
+const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
   onCountrySelect,
   selectedOptions = [],
+  showSettings = false,
+  setShowSettings,
 }) => {
   const globeRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -101,6 +54,12 @@ const GlobeView: React.FC<GlobeViewProps> = ({
   const [hoverAirport, setHoverAirport] = useState<AirportPoint | null>(null);
   const [selectedAirport, setSelectedAirport] = useState<AirportPoint | null>(null);
 
+  const [hoverPort, setHoverPort] = useState<PortPoint | null>(null);
+  const [selectedPort, setSelectedPort] = useState<PortPoint | null>(null);
+
+  const [hoverMiningAsset, setHoverMiningAsset] = useState<MiningAssetPoint | null>(null);
+  const [selectedMiningAsset, setSelectedMiningAsset] = useState<MiningAssetPoint | null>(null);
+
   const [hoverPlane, setHoverPlane] = useState<PlanePoint | null>(null);
   const [selectedPlane, setSelectedPlane] = useState<PlanePoint | null>(null);
 
@@ -109,28 +68,90 @@ const GlobeView: React.FC<GlobeViewProps> = ({
   const [viewLng, setViewLng] = useState(0);
   const [viewportTick, setViewportTick] = useState(0);
 
-  const { countries, weatherPoints, airportPoints, planePoints } = useGlobeData(
-    selectedOptions,
-    globeAltitude
+  const [pausePointRendering, setPausePointRendering] = useState(false);
+  const [showDebug, setShowDebug] = useState(true);
+  const [layerQuality, setLayerQuality] = useState<LayerQuality>('balanced');
+
+  const renderResumeTimeoutRef = useRef<number | null>(null);
+  const lastCameraRef = useRef({ altitude: 2.8, lat: 0, lng: 0 });
+
+  const CAMERA_SETTLE_DELAY_MS = 180;
+
+  const zoomBand = useMemo(() => getZoomBand(globeAltitude), [globeAltitude]);
+
+  const renderCaps = useMemo(
+    () => getLayerRenderCaps(zoomBand, layerQuality),
+    [zoomBand, layerQuality]
   );
 
+  const dataAltitude = useMemo(() => getDataAltitudeForZoomBand(zoomBand), [zoomBand]);
+
+  const {
+    countries,
+    weatherPoints,
+    airportPoints,
+    portPoints,
+    miningAssetPoints,
+    planePoints,
+  } = useGlobeData(selectedOptions, dataAltitude);
+
   const showAirportLayers = selectedOptions.some((id) => id.startsWith('airports-'));
+  const showPortLayers = selectedOptions.some((id) => id.startsWith('ports-'));
+  const showMiningLayers = selectedOptions.some((id) => id.startsWith('mining-'));
   const showPlaneLayers = selectedOptions.some((id) => id.startsWith('planes-'));
 
   useEffect(() => {
     const interval = setInterval(() => {
       const pov = globeRef.current?.pointOfView?.();
+      if (!pov) return;
 
-      if (pov) {
-        if (typeof pov.altitude === 'number') setGlobeAltitude(pov.altitude);
-        if (typeof pov.lat === 'number') setViewLat(pov.lat);
-        if (typeof pov.lng === 'number') setViewLng(pov.lng);
+      const nextAltitude =
+        typeof pov.altitude === 'number' ? pov.altitude : lastCameraRef.current.altitude;
+
+      const nextLat = typeof pov.lat === 'number' ? pov.lat : lastCameraRef.current.lat;
+      const nextLng = typeof pov.lng === 'number' ? pov.lng : lastCameraRef.current.lng;
+
+      const last = lastCameraRef.current;
+
+      const zoomChanged = Math.abs(nextAltitude - last.altitude) > 0.01;
+      const cameraMoved =
+        Math.abs(nextLat - last.lat) > 0.02 ||
+        Math.abs(nextLng - last.lng) > 0.02;
+
+      if (zoomChanged) {
+        setPausePointRendering(true);
+
+        if (renderResumeTimeoutRef.current) {
+          window.clearTimeout(renderResumeTimeoutRef.current);
+        }
+
+        renderResumeTimeoutRef.current = window.setTimeout(() => {
+          setPausePointRendering(false);
+          setViewportTick((v) => v + 1);
+        }, CAMERA_SETTLE_DELAY_MS);
       }
 
-      setViewportTick((v) => v + 1);
-    }, 250);
+      if (zoomChanged || cameraMoved) {
+        setGlobeAltitude(nextAltitude);
+        setViewLat(nextLat);
+        setViewLng(nextLng);
+        setViewportTick((v) => v + 1);
+      }
 
-    return () => clearInterval(interval);
+      lastCameraRef.current = {
+        altitude: nextAltitude,
+        lat: nextLat,
+        lng: nextLng,
+      };
+    }, 120);
+
+    return () => {
+      clearInterval(interval);
+
+      if (renderResumeTimeoutRef.current) {
+        window.clearTimeout(renderResumeTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -140,71 +161,149 @@ const GlobeView: React.FC<GlobeViewProps> = ({
   }, []);
 
   const visibleAirportPoints = useMemo(() => {
-    if (!showAirportLayers || !globeRef.current || !containerRef.current) {
-      return [];
-    }
+    if (!showAirportLayers) return [];
 
-    const globe = globeRef.current;
-    const rect = containerRef.current.getBoundingClientRect();
-    const margin = 20;
-
-    return airportPoints.filter((airport) => {
-      if (!isPointFrontFacing(airport.lat, airport.lng, viewLat, viewLng)) {
-        return false;
-      }
-
-      const coords = globe.getScreenCoords?.(airport.lat, airport.lng, 0);
-
-      if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
-        return false;
-      }
-
-      return (
-        coords.x >= rect.left - margin &&
-        coords.x <= rect.right + margin &&
-        coords.y >= rect.top - margin &&
-        coords.y <= rect.bottom + margin
-      );
+    const visible = filterVisibleGlobePoints({
+      points: airportPoints,
+      globe: globeRef.current,
+      container: containerRef.current,
+      viewLat,
+      viewLng,
+      margin: 20,
     });
-  }, [airportPoints, showAirportLayers, viewLat, viewLng, viewportTick]);
+
+    return sortAirportsByImportance(visible).slice(0, renderCaps.airports);
+  }, [
+    airportPoints,
+    showAirportLayers,
+    viewLat,
+    viewLng,
+    viewportTick,
+    renderCaps.airports,
+  ]);
+
+  const visiblePortPoints = useMemo(() => {
+    if (!showPortLayers) return [];
+
+    const visible = filterVisibleGlobePoints({
+      points: portPoints,
+      globe: globeRef.current,
+      container: containerRef.current,
+      viewLat,
+      viewLng,
+      margin: 20,
+    });
+
+    return sortPortsByImportance(visible).slice(0, renderCaps.ports);
+  }, [
+    portPoints,
+    showPortLayers,
+    viewLat,
+    viewLng,
+    viewportTick,
+    renderCaps.ports,
+  ]);
+
+  const visibleMiningAssetPoints = useMemo(() => {
+    if (!showMiningLayers) return [];
+
+    const visible = filterVisibleGlobePoints({
+      points: miningAssetPoints,
+      globe: globeRef.current,
+      container: containerRef.current,
+      viewLat,
+      viewLng,
+      margin: 20,
+    });
+
+    return visible
+      .sort((a, b) => (b.importanceScore ?? 0) - (a.importanceScore ?? 0))
+      .slice(0, MINING_RENDER_CAP);
+  }, [
+    miningAssetPoints,
+    showMiningLayers,
+    viewLat,
+    viewLng,
+    viewportTick,
+  ]);
 
   const visiblePlanePoints = useMemo(() => {
-    if (!showPlaneLayers || !globeRef.current || !containerRef.current) {
-      return [];
-    }
+    if (!showPlaneLayers) return [];
 
-    const globe = globeRef.current;
-    const rect = containerRef.current.getBoundingClientRect();
-    const margin = 20;
-
-    const frontFacingVisible = planePoints.filter((plane) => {
-      if (!isPointFrontFacing(plane.lat, plane.lng, viewLat, viewLng)) {
-        return false;
-      }
-
-      const coords = globe.getScreenCoords?.(plane.lat, plane.lng, 0);
-
-      if (!coords || typeof coords.x !== 'number' || typeof coords.y !== 'number') {
-        return false;
-      }
-
-      return (
-        coords.x >= rect.left - margin &&
-        coords.x <= rect.right + margin &&
-        coords.y >= rect.top - margin &&
-        coords.y <= rect.bottom + margin
-      );
+    const frontFacingVisible = filterVisibleGlobePoints({
+      points: planePoints,
+      globe: globeRef.current,
+      container: containerRef.current,
+      viewLat,
+      viewLng,
+      margin: 20,
     });
 
-    return reducePlanesForZoom(frontFacingVisible, globeAltitude);
-  }, [planePoints, showPlaneLayers, viewLat, viewLng, viewportTick, globeAltitude]);
+    const reduced = reducePlanesForZoom(frontFacingVisible, globeAltitude);
+    return sortPlanesByImportance(reduced).slice(0, renderCaps.planes);
+  }, [
+    planePoints,
+    showPlaneLayers,
+    viewLat,
+    viewLng,
+    viewportTick,
+    globeAltitude,
+    renderCaps.planes,
+  ]);
+
+  const selectedHighlights = useMemo<GlobePoint[]>(() => {
+    const highlights: GlobePoint[] = [];
+
+    if (selectedAirport) {
+      highlights.push({
+        ...selectedAirport,
+        color: '#ffffff',
+        size: selectedAirport.size * 2.1,
+        layerKind: 'airport',
+      });
+    }
+
+    if (selectedPort) {
+      highlights.push({
+        ...selectedPort,
+        color: '#ffffff',
+        size: selectedPort.size * 2,
+        layerKind: 'port',
+      });
+    }
+
+    if (selectedMiningAsset) {
+      highlights.push({
+        ...selectedMiningAsset,
+        color: '#ffffff',
+        size: selectedMiningAsset.size * 2.1,
+        layerKind: 'mining',
+      });
+    }
+
+    return highlights;
+  }, [selectedAirport, selectedPort, selectedMiningAsset]);
+
+  const allVisiblePointLayers = useMemo<GlobePoint[]>(() => {
+    return [
+      ...weatherPoints,
+      ...visiblePortPoints,
+      ...visibleAirportPoints,
+      ...visibleMiningAssetPoints,
+      ...selectedHighlights,
+    ];
+  }, [
+    weatherPoints,
+    visiblePortPoints,
+    visibleAirportPoints,
+    visibleMiningAssetPoints,
+    selectedHighlights,
+  ]);
 
   const activePlaneForRoute = selectedPlane ?? hoverPlane;
 
   const planeRouteLineData = useMemo(() => {
-    if (!showPlaneLayers || !activePlaneForRoute) {
-      return [];
-    }
+    if (!showPlaneLayers || !activePlaneForRoute) return [];
 
     if (
       activePlaneForRoute.destination_lat == null ||
@@ -229,11 +328,13 @@ const GlobeView: React.FC<GlobeViewProps> = ({
     [selectedCountry]
   );
 
+  const activeAirport = selectedAirport ?? hoverAirport;
+  const activePort = selectedPort ?? hoverPort;
+  const activeMiningAsset = selectedMiningAsset ?? hoverMiningAsset;
+  const activePlane = selectedPlane ?? hoverPlane;
+
   return (
-    <div
-      ref={containerRef}
-      style={{ width: '100%', height: '100%', position: 'relative' }}
-    >
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Globe
         ref={globeRef}
         globeImageUrl="https://unpkg.com/three-globe/example/img/earth-dark.jpg"
@@ -241,6 +342,7 @@ const GlobeView: React.FC<GlobeViewProps> = ({
         atmosphereColor="#c4c5c5"
         atmosphereAltitude={0.15}
         lineHoverPrecision={0}
+        pointsTransitionDuration={0}
         polygonsData={countries.filter((d) => d.properties?.ISO_A2 !== 'AQ')}
         polygonCapColor={(d) =>
           (d as CountryFeature).properties?.NAME === hoverCountry?.properties?.NAME
@@ -266,6 +368,8 @@ const GlobeView: React.FC<GlobeViewProps> = ({
 
           setSelectedCountry(country);
           setSelectedAirport(null);
+          setSelectedPort(null);
+          setSelectedMiningAsset(null);
           setSelectedPlane(null);
           onCountrySelect?.(country);
 
@@ -275,151 +379,163 @@ const GlobeView: React.FC<GlobeViewProps> = ({
           );
         }}
         polygonsTransitionDuration={200}
-        pointsData={weatherPoints}
+        pointsData={pausePointRendering ? [] : allVisiblePointLayers}
         pointLat="lat"
         pointLng="lng"
         pointColor="color"
-        pointRadius="size"
-        pointAltitude="size"
-        pointLabel={(d) => {
-          const point = d as WeatherPoint;
-          return `${point.name}<br />${
-            point.temp !== null ? `${point.temp.toFixed(1)}°C` : 'N/A'
-          }`;
+        pointRadius={(d: object) => {
+          const point = d as GlobePoint;
+          const zoomMultiplier = getZoomRadiusMultiplier(globeAltitude);
+
+          if (point.layerKind === 'airport') return point.size * zoomMultiplier * 1.12;
+          if (point.layerKind === 'port') return point.size * zoomMultiplier;
+          if (point.layerKind === 'mining') return point.size * zoomMultiplier * 0.95;
+          if (point.layerKind === 'weather') return point.size * Math.min(zoomMultiplier, 1.2);
+
+          return point.size * zoomMultiplier;
         }}
-        htmlElementsData={[...visibleAirportPoints, ...visiblePlanePoints]}
-        htmlLat="lat"
-        htmlLng="lng"
-        htmlAltitude={(d) => ('callsign' in (d as object) ? 0.02 : 0.008)}
-        htmlElement={(d) => {
-          if ('callsign' in (d as object)) {
-            const plane = d as PlanePoint;
-            const el = document.createElement('div');
+        pointAltitude={(d: object) => {
+          const point = d as GlobePoint;
+          const altitudeMultiplier = getZoomAltitudeMultiplier(globeAltitude);
 
-            const rawHeading = Number(plane.heading_deg);
-            const heading = Number.isFinite(rawHeading) ? rawHeading : 0;
+          if (point.layerKind === 'airport') return 0.012 * altitudeMultiplier;
+          if (point.layerKind === 'port') return 0.007 * altitudeMultiplier;
+          if (point.layerKind === 'mining') return 0.01 * altitudeMultiplier;
+          if (point.layerKind === 'weather') return 0.002 * altitudeMultiplier;
 
-            el.innerHTML = `
-              <div style="
-                width: 16px;
-                height: 16px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transform: rotate(${heading}deg);
-                transform-origin: center center;
-              ">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 64 64"
-                  xmlns="http://www.w3.org/2000/svg"
-                  style="display:block;"
-                >
-                  <path
-                    d="M32 2
-                       L38 22
-                       L58 28
-                       L58 34
-                       L38 36
-                       L35 62
-                       L29 62
-                       L26 36
-                       L6 34
-                       L6 28
-                       L26 22
-                       Z"
-                    fill="${plane.color}"
-                  />
-                  <path
-                    d="M28 30
-                       L10 39
-                       L10 44
-                       L28 40
-                       Z"
-                    fill="${plane.color}"
-                  />
-                  <path
-                    d="M36 30
-                       L54 39
-                       L54 44
-                       L36 40
-                       Z"
-                    fill="${plane.color}"
-                  />
-                  <path
-                    d="M29 8
-                       L35 8
-                       L34 18
-                       L30 18
-                       Z"
-                    fill="#dbeafe"
-                    opacity="0.9"
-                  />
-                </svg>
-              </div>
-            `;
-
-            el.style.cursor = 'pointer';
-            el.style.pointerEvents = 'auto';
-            el.style.userSelect = 'none';
-            el.style.lineHeight = '1';
-
-            el.onmouseenter = () => setHoverPlane(plane);
-            el.onmouseleave = () =>
-              setHoverPlane((current) => (current?.id === plane.id ? null : current));
-
-            el.onclick = () => {
-              setSelectedPlane(plane);
-              setHoverPlane(plane);
-              setSelectedAirport(null);
-              setSelectedCountry(null);
-
-              globeRef.current?.pointOfView(
-                { lat: plane.lat, lng: plane.lng, altitude: 0.9 },
-                800
-              );
-            };
-
-            return el;
+          return 0.003 * altitudeMultiplier;
+        }}
+        onPointHover={(d: object | null) => {
+          if (!d) {
+            setHoverAirport(null);
+            setHoverPort(null);
+            setHoverMiningAsset(null);
+            return;
           }
 
-          const airport = d as AirportPoint;
-          const el = document.createElement('div');
+          const point = d as GlobePoint;
 
-          const sizePx =
-            airport.airport_type === 'large_airport'
-              ? 5
-              : airport.airport_type === 'medium_airport'
-                ? 4
-                : 3;
+          if (point.layerKind === 'airport') {
+            setHoverAirport(point as AirportPoint);
+            setHoverPort(null);
+            setHoverMiningAsset(null);
+          } else if (point.layerKind === 'port') {
+            setHoverPort(point as PortPoint);
+            setHoverAirport(null);
+            setHoverMiningAsset(null);
+          } else if (point.layerKind === 'mining') {
+            setHoverMiningAsset(point as MiningAssetPoint);
+            setHoverAirport(null);
+            setHoverPort(null);
+          } else {
+            setHoverAirport(null);
+            setHoverPort(null);
+            setHoverMiningAsset(null);
+          }
+        }}
+        onPointClick={(d: object) => {
+          const point = d as GlobePoint;
 
-          el.style.width = `${sizePx}px`;
-          el.style.height = `${sizePx}px`;
-          el.style.borderRadius = '50%';
-          el.style.background = airport.color;
-          el.style.cursor = 'pointer';
-          el.style.pointerEvents = 'auto';
+          if (point.layerKind === 'airport') {
+            const airport = point as AirportPoint;
 
-          el.onmouseenter = () => setHoverAirport(airport);
-          el.onmouseleave = () =>
-            setHoverAirport((current) => (current?.id === airport.id ? null : current));
-
-          el.onclick = () => {
             setSelectedAirport(airport);
             setHoverAirport(airport);
+            setSelectedMiningAsset(null);
             setSelectedPlane(null);
+            setSelectedPort(null);
             setSelectedCountry(null);
 
             globeRef.current?.pointOfView(
               { lat: airport.lat, lng: airport.lng, altitude: 0.8 },
               800
             );
-          };
+            return;
+          }
 
-          return el;
+          if (point.layerKind === 'port') {
+            const port = point as PortPoint;
+
+            setSelectedPort(port);
+            setHoverPort(port);
+            setSelectedAirport(null);
+            setSelectedMiningAsset(null);
+            setSelectedPlane(null);
+            setSelectedCountry(null);
+
+            globeRef.current?.pointOfView(
+              { lat: port.lat, lng: port.lng, altitude: 0.9 },
+              800
+            );
+            return;
+          }
+
+          if (point.layerKind === 'mining') {
+            const asset = point as MiningAssetPoint;
+
+            setSelectedMiningAsset(asset);
+            setHoverMiningAsset(asset);
+            setSelectedAirport(null);
+            setSelectedPort(null);
+            setSelectedPlane(null);
+            setSelectedCountry(null);
+
+            globeRef.current?.pointOfView(
+              { lat: asset.lat, lng: asset.lng, altitude: 0.85 },
+              800
+            );
+          }
         }}
-        arcsData={planeRouteLineData}
+        pointLabel={(d: object) => {
+          const point = d as GlobePoint;
+
+          if (point.layerKind === 'airport') {
+            const airport = point as AirportPoint;
+            return `<strong>${airport.name}</strong><br/>${airport.code || 'No code'}<br/>${airport.airport_type}`;
+          }
+
+          if (point.layerKind === 'port') {
+            const port = point as PortPoint;
+            return `<strong>${port.name}</strong><br/>${port.unlocode ?? 'No UN/LOCODE'}<br/>${port.harbor_use ?? 'Unknown use'}`;
+          }
+
+          if (point.layerKind === 'mining') {
+            const asset = point as MiningAssetPoint;
+            return `<strong>${asset.name}</strong><br/>${asset.assetTypeRaw ?? asset.entityType}<br/>${asset.primaryCommodity}`;
+          }
+
+          return '';
+        }}
+        htmlElementsData={pausePointRendering ? [] : visiblePlanePoints}
+        htmlLat="lat"
+        htmlLng="lng"
+        htmlAltitude={() => 0.02}
+        htmlElement={(d) => {
+          const plane = d as PlanePoint;
+
+          return createPlaneElement({
+            plane,
+            onHover: setHoverPlane,
+            onLeave: (leavingPlane) =>
+              setHoverPlane((current) =>
+                current?.id === leavingPlane.id ? null : current
+              ),
+            onClick: (clickedPlane) => {
+              setSelectedPlane(clickedPlane);
+              setHoverPlane(clickedPlane);
+              setSelectedAirport(null);
+              setSelectedPort(null);
+              setSelectedMiningAsset(null);
+              setSelectedCountry(null);
+
+              globeRef.current?.pointOfView(
+                { lat: clickedPlane.lat, lng: clickedPlane.lng, altitude: 0.9 },
+                800
+              );
+            },
+          });
+        }}
+        arcsData={pausePointRendering ? [] : planeRouteLineData}
         arcStartLat="startLat"
         arcStartLng="startLng"
         arcEndLat="endLat"
@@ -432,96 +548,83 @@ const GlobeView: React.FC<GlobeViewProps> = ({
         arcAltitudeAutoScale={0.1}
       />
 
-      {(hoverAirport || selectedAirport) && showAirportLayers && !selectedPlane && (
+      {showDebug && (
+        <DebugPanel
+          pausePointRendering={pausePointRendering}
+          weatherFetched={weatherPoints.length}
+          airportsFetched={airportPoints.length}
+          airportsRendered={visibleAirportPoints.length}
+          airportCap={renderCaps.airports}
+          portsFetched={portPoints.length}
+          portsRendered={visiblePortPoints.length}
+          portCap={renderCaps.ports}
+          planesFetched={planePoints.length}
+          planesRendered={visiblePlanePoints.length}
+          planeCap={renderCaps.planes}
+          totalWebGLPoints={allVisiblePointLayers.length}
+          globeAltitude={globeAltitude}
+          zoomBand={zoomBand}
+          dataAltitude={dataAltitude}
+          pointScale={getZoomRadiusMultiplier(globeAltitude)}
+          poleScale={getZoomAltitudeMultiplier(globeAltitude)}
+        />
+      )}
+
+      <GlobeSettingsPanel
+        visible={showSettings}
+        onClose={() => setShowSettings?.(false)}
+        showDebug={showDebug}
+        setShowDebug={setShowDebug}
+        layerQuality={layerQuality}
+        setLayerQuality={setLayerQuality}
+      />
+
+      {activeAirport && showAirportLayers && !selectedPlane && !selectedPort && !selectedMiningAsset && (
+        <AirportInfoPanel airport={activeAirport} />
+      )}
+
+      {activePort && showPortLayers && !selectedPlane && !selectedAirport && !selectedMiningAsset && (
+        <PortInfoPanel port={activePort} />
+      )}
+
+      {activePlane && showPlaneLayers && <PlaneInfoPanel plane={activePlane} />}
+
+      {activeMiningAsset && showMiningLayers && !selectedPlane && !selectedAirport && !selectedPort && (
         <div
           style={{
             position: 'absolute',
-            top: 20,
-            right: 20,
-            background: 'rgba(15,23,42,0.96)',
-            padding: '12px 16px',
-            borderRadius: 10,
-            border: '1px solid #475569',
-            color: '#e0e7ff',
-            zIndex: 120,
-            minWidth: 220,
+            left: 20,
+            top: 80,
+            width: 280,
+            padding: '12px 14px',
+            background: 'rgba(15,23,42,0.94)',
+            border: '1px solid rgba(148,163,184,0.35)',
+            borderRadius: 12,
+            color: '#e5e7eb',
+            zIndex: 130,
+            fontSize: 13,
+            boxShadow: '0 18px 50px rgba(0,0,0,0.45)',
           }}
         >
-          {(() => {
-            const airport = selectedAirport ?? hoverAirport;
-            if (!airport) return null;
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>
+            {activeMiningAsset.name}
+          </div>
 
-            return (
-              <>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>
-                  {airport.name}
-                </div>
-                <div style={{ color: '#93c5fd', fontSize: 12, marginBottom: 4 }}>
-                  {airport.code || airport.gps_code || 'No code'}
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                  Type: {airport.airport_type.replace(/_/g, ' ')}
-                </div>
-                {airport.scheduled_service && (
-                  <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
-                    Scheduled service: {airport.scheduled_service}
-                  </div>
-                )}
-              </>
-            );
-          })()}
+          <div>Type: {activeMiningAsset.assetTypeRaw ?? activeMiningAsset.entityType}</div>
+          <div>Country: {activeMiningAsset.country ?? 'Unknown'}</div>
+          <div>Primary: {activeMiningAsset.primaryCommodity}</div>
+          <div>Group: {activeMiningAsset.commodityGroup ?? 'Unknown'}</div>
+          <div>
+            Commodities:{' '}
+            {activeMiningAsset.allCommodities.length > 0
+              ? activeMiningAsset.allCommodities.join(', ')
+              : 'Unknown'}
+          </div>
+          <div>Confidence: {activeMiningAsset.confidenceFactor ?? 'Unknown'}</div>
         </div>
       )}
 
-      {(hoverPlane || selectedPlane) && showPlaneLayers && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 20,
-            right: 20,
-            background: 'rgba(15,23,42,0.96)',
-            padding: '12px 16px',
-            borderRadius: 10,
-            border: '1px solid #475569',
-            color: '#e0e7ff',
-            zIndex: 120,
-            minWidth: 240,
-          }}
-        >
-          {(() => {
-            const plane = selectedPlane ?? hoverPlane;
-            if (!plane) return null;
-
-            return (
-              <>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>
-                  {plane.callsign}
-                </div>
-                <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 4 }}>
-                  {plane.aircraft_type}
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                  Altitude: {plane.altitude_ft ?? 'N/A'} ft
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                  Speed: {plane.ground_speed_kts ?? 'N/A'} kts
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                  Heading: {plane.heading_deg ?? 'N/A'}°
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                  Route: {plane.origin ?? 'UNK'} → {plane.destination ?? 'UNK'}
-                </div>
-                <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                  Type: {plane.status ?? 'unknown'}
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      )}
-
-      {selectedCountryName && !selectedAirport && !selectedPlane && (
+      {selectedCountryName && !selectedAirport && !selectedPlane && !selectedPort && !selectedMiningAsset && (
         <div
           style={{
             position: 'absolute',
@@ -543,8 +646,12 @@ const GlobeView: React.FC<GlobeViewProps> = ({
         onClick={() => {
           setSelectedCountry(null);
           setSelectedAirport(null);
+          setSelectedPort(null);
+          setSelectedMiningAsset(null);
           setSelectedPlane(null);
           setHoverAirport(null);
+          setHoverPort(null);
+          setHoverMiningAsset(null);
           setHoverPlane(null);
           onCountrySelect?.(null);
 

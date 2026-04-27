@@ -2,6 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from core.database import get_db
 from .ingestion import fetch_current_weather
+from app.api.ports import router as ports_router
+
+app.include_router(ports_router)
 
 router = APIRouter()
 

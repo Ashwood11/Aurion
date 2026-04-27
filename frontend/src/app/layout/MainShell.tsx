@@ -10,11 +10,21 @@ interface MainShellProps {
 const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) => {
   const [leftExpanded, setLeftExpanded] = useState(false);
   const [rightOpen, setRightOpen] = useState(true);
+  const [showGlobeSettings, setShowGlobeSettings] = useState(false);
 
-  const renderedLeft =
-    React.isValidElement(left)
-      ? React.cloneElement(left as React.ReactElement<any>, { expanded: leftExpanded })
-      : left;
+  const renderedLeft = React.isValidElement(left)
+    ? React.cloneElement(left as React.ReactElement<any>, {
+        expanded: leftExpanded,
+        onOpenSettings: () => setShowGlobeSettings(true),
+      })
+    : left;
+
+  const renderedCenter = React.isValidElement(center)
+    ? React.cloneElement(center as React.ReactElement<any>, {
+        showSettings: showGlobeSettings,
+        setShowSettings: setShowGlobeSettings,
+      })
+    : center;
 
   return (
     <div
@@ -34,13 +44,12 @@ const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) =>
           onMouseLeave={() => setLeftExpanded(false)}
           style={{
             position: 'absolute',
-            left: '0px',
-            top: '0px',
-            bottom: '0px',
-            width: leftExpanded ? '220px' : '56px',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: leftExpanded ? 220 : 56,
             background: 'rgba(3, 8, 18, 0.98)',
             borderRight: '1px solid rgba(255,255,255,0.14)',
-            borderRadius: '0px',
             padding: leftExpanded ? '10px 8px' : '8px 6px',
             zIndex: 80,
             overflow: 'hidden',
@@ -63,17 +72,17 @@ const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) =>
           zIndex: 1,
         }}
       >
-        {center}
+        {renderedCenter}
       </div>
 
       {right && (
         <div
           style={{
             position: 'absolute',
-            top: '0px',
-            right: '0px',
-            bottom: '0px',
-            width: rightOpen ? '340px' : '0px',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: rightOpen ? 340 : 0,
             background: 'rgba(3, 8, 18, 0.985)',
             borderLeft: rightOpen ? '1px solid rgba(255,255,255,0.10)' : 'none',
             overflow: 'hidden',
@@ -85,10 +94,10 @@ const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) =>
         >
           <div
             style={{
-              width: '340px',
+              width: 340,
               height: '100%',
               overflowY: 'auto',
-              padding: '20px',
+              padding: 20,
               boxSizing: 'border-box',
               position: 'relative',
               zIndex: 2,
@@ -105,7 +114,7 @@ const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) =>
           onClick={() => setRightOpen(!rightOpen)}
           style={{
             position: 'absolute',
-            right: rightOpen ? '340px' : '0px',
+            right: rightOpen ? 340 : 0,
             top: '50%',
             transform: 'translateY(-50%)',
             background: 'rgba(37, 54, 89, 0.96)',
@@ -115,7 +124,7 @@ const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) =>
             borderRadius: '10px 0 0 10px',
             cursor: 'pointer',
             zIndex: 95,
-            fontSize: '14px',
+            fontSize: 14,
             transition: 'right 0.24s ease',
           }}
         >
@@ -127,9 +136,9 @@ const MainShell: React.FC<MainShellProps> = ({ left, center, right, bottom }) =>
         <div
           style={{
             position: 'absolute',
-            left: left ? (leftExpanded ? '236px' : '72px') : '18px',
-            right: right && rightOpen ? '356px' : '18px',
-            bottom: '16px',
+            left: left ? (leftExpanded ? 236 : 72) : 18,
+            right: right && rightOpen ? 356 : 18,
+            bottom: 16,
             zIndex: 85,
             transition: 'left 0.22s ease, right 0.24s ease',
           }}

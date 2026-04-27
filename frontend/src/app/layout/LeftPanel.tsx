@@ -12,6 +12,7 @@ interface LeftPanelProps {
   activeModule: string;
   onSelectModule: (id: string) => void;
   expanded?: boolean;
+  onOpenSettings?: () => void;
 }
 
 export default function LeftPanel({
@@ -19,6 +20,7 @@ export default function LeftPanel({
   activeModule,
   onSelectModule,
   expanded = false,
+  onOpenSettings,
 }: LeftPanelProps) {
   return (
     <div
@@ -32,7 +34,6 @@ export default function LeftPanel({
         boxSizing: 'border-box',
       }}
     >
-      {/* Top Logo - More compact */}
       <div
         style={{
           display: 'flex',
@@ -64,18 +65,16 @@ export default function LeftPanel({
         {expanded && (
           <div>
             <div style={{ fontSize: '14.5px', fontWeight: 700 }}>AURION</div>
-            <div style={{ fontSize: '10.5px', color: '#ffffff00' }}></div>
           </div>
         )}
       </div>
 
-      {/* Navigation - Tighter & More Dense */}
       <div
         style={{
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          gap: '1px',                    // Very tight
+          gap: '1px',
           padding: '8px 0',
           overflowY: 'auto',
         }}
@@ -92,27 +91,13 @@ export default function LeftPanel({
                 position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
-                height: '38px',              // ← Much closer to target
+                height: '38px',
                 paddingLeft: '10px',
                 border: 'none',
                 background: isActive ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
                 cursor: 'pointer',
               }}
             >
-              {isActive && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: '0',
-                    top: '8px',
-                    bottom: '8px',
-                    width: '3px',
-                    background: '#ffffff00',
-                    borderRadius: '9999px',
-                  }}
-                />
-              )}
-
               <div
                 style={{
                   width: '26px',
@@ -120,7 +105,7 @@ export default function LeftPanel({
                   display: 'grid',
                   placeItems: 'center',
                   fontSize: '15.5px',
-                  color: isActive ? '#ffffff' : '#ffffff',
+                  color: '#ffffff',
                   flexShrink: 0,
                 }}
               >
@@ -147,7 +132,6 @@ export default function LeftPanel({
         })}
       </div>
 
-      {/* Bottom Settings */}
       <div
         style={{
           padding: '8px 0',
@@ -155,6 +139,8 @@ export default function LeftPanel({
         }}
       >
         <button
+          onClick={onOpenSettings}
+          title="System Settings"
           style={{
             width: '100%',
             display: 'flex',
