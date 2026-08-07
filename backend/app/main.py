@@ -8,9 +8,11 @@ from app.api.airports import router as airports_router
 from app.api.planes import router as planes_router
 from app.api.ports import router as ports_router
 from app.api.mining import router as mining_router
+from app.api.weather import router as weather_router
+from app.api.gas import router as gas_router
 
 from .core.database import SessionLocal
-from .models.weather import WeatherData
+from .modules.weather.models import WeatherData
 
 
 app = FastAPI(title="Aurion Backend")
@@ -29,6 +31,8 @@ app.include_router(airports_router)
 app.include_router(planes_router)
 app.include_router(ports_router)
 app.include_router(mining_router)
+app.include_router(weather_router)
+app.include_router(gas_router)
 
 
 @app.get("/globe/data")
