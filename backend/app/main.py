@@ -31,7 +31,7 @@ app.include_router(weather_router)
 # New callers should use /api/weather/globe.
 @app.get("/globe/data", deprecated=True)
 def get_globe_data():
-    return get_globe_weather()
+    return get_globe_weather(limit=5000)
 
 
 @app.get("/")
