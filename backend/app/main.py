@@ -1,18 +1,12 @@
-from datetime import datetime, timezone
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
 
 from app.api.airports import router as airports_router
+from app.api.gas import router as gas_router
+from app.api.mining import router as mining_router
 from app.api.planes import router as planes_router
 from app.api.ports import router as ports_router
-from app.api.mining import router as mining_router
-from app.api.weather import router as weather_router
-from app.api.gas import router as gas_router
-
-from .core.database import SessionLocal
-from .modules.weather.models import WeatherData
+from app.api.weather import get_globe_weather, router as weather_router
 
 
 app = FastAPI(title="Aurion Backend")
@@ -35,28 +29,11 @@ app.include_router(weather_router)
 app.include_router(gas_router)
 
 
-@app.get("/globe/data")
+# Temporary compatibility route for the current frontend.
+# New callers should use /api/weather/globe.
+@app.get("/globe/data", deprecated=True)
 def get_globe_data():
-    db = SessionLocal()
-
-    try:
-        weather = db.execute(select(WeatherData)).scalars().all()
-
-        return {
-            "weather": [
-                {
-                    "name": w.location,
-                    "temp": w.temperature_2m,
-                    "wind": w.wind_speed_10m,
-                    "precip": w.precipitation,
-                }
-                for w in weather
-            ],
-            "last_updated": datetime.now(timezone.utc).isoformat(),
-        }
-
-    finally:
-        db.close()
+    return get_globe_weather(limit=5000)
 
 
 @app.get("/")
