@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import (
-    datetime,
-    timezone,
+from datetime import datetime
+
+from .availability import (
+    validate_gfs_initialization_time,
 )
 
 from .config import (
@@ -78,6 +79,9 @@ def resolve_initialization_time(
 
     Explicit initialization_time always takes priority.
 
+    Explicit cycles are validated against the normal
+    GFS UTC cycle hours.
+
     When initialization_time is None, Aurion selects the
     latest GFS cycle considered available by cycle.py.
 
@@ -85,20 +89,9 @@ def resolve_initialization_time(
     """
 
     if initialization_time is not None:
-        if (
-            initialization_time
-            .tzinfo
-            is None
-        ):
-            raise ValueError(
-                "initialization_time must "
-                "be timezone-aware."
-            )
-
         initialization_time = (
-            initialization_time
-            .astimezone(
-                timezone.utc
+            validate_gfs_initialization_time(
+                initialization_time
             )
         )
 
@@ -141,20 +134,9 @@ def resolve_derived_forecast_run_id(
     *,
     initialization_time: datetime,
 ) -> int | None:
-    if (
-        initialization_time
-        .tzinfo
-        is None
-    ):
-        raise ValueError(
-            "initialization_time must "
-            "be timezone-aware."
-        )
-
     initialization_time = (
-        initialization_time
-        .astimezone(
-            timezone.utc
+        validate_gfs_initialization_time(
+            initialization_time
         )
     )
 
@@ -458,6 +440,10 @@ def ingest_missing_gfs_hours(
         datetime
         | None
     ) = None,
+    initialization_selection: (
+        GFSInitializationSelection
+        | None
+    ) = None,
     now: (
         datetime
         | None
@@ -473,11 +459,20 @@ def ingest_missing_gfs_hours(
     """
     Process only missing forecast hours.
 
-    If initialization_time is supplied, that exact cycle
-    is used.
+    A caller may provide either:
+        initialization_time
+    or:
+        initialization_selection
 
-    If initialization_time is None, Aurion automatically
-    selects the latest available GFS cycle.
+    but not both.
+
+    initialization_selection is useful when a higher-level
+    entry point has already resolved the automatic cycle
+    and needs to preserve that exact selection even if no
+    forecast hours need to be ingested.
+
+    If neither is supplied, Aurion automatically selects
+    the latest available GFS cycle.
 
     Missing hours are grouped into contiguous ranges and
     passed to the existing failure-isolated range runner.
@@ -486,19 +481,43 @@ def ingest_missing_gfs_hours(
     database transaction.
     """
 
-    selection = (
-        resolve_initialization_time(
-            initialization_time=(
-                initialization_time
-            ),
-            now=now,
+    if (
+        initialization_selection is not None
+        and initialization_time is not None
+    ):
+        raise ValueError(
+            "Supply either initialization_time "
+            "or initialization_selection, "
+            "not both."
         )
-    )
 
-    resolved_initialization_time = (
-        selection
-        .initialization_time
-    )
+    if initialization_selection is not None:
+        selection = (
+            initialization_selection
+        )
+
+        # Defensive validation of externally supplied
+        # selection objects.
+        resolved_initialization_time = (
+            validate_gfs_initialization_time(
+                selection.initialization_time
+            )
+        )
+
+    else:
+        selection = (
+            resolve_initialization_time(
+                initialization_time=(
+                    initialization_time
+                ),
+                now=now,
+            )
+        )
+
+        resolved_initialization_time = (
+            selection
+            .initialization_time
+        )
 
     print(
         "GFS controller cycle: "

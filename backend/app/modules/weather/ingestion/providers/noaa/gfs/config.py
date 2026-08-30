@@ -7,8 +7,6 @@ from pathlib import Path
 
 PROVIDER_CODE = "NOAA"
 
-MODEL_CODE = "GFS"
-
 GFS_MODEL_CODE = "GFS"
 
 GFS_MODEL_VERSION_CODE = (

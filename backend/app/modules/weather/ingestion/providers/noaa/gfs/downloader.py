@@ -10,6 +10,7 @@ from .config import (
     FILTER_URL,
     USER_AGENT,
     GFS_SUBSET_ROOT,
+    MAX_FORECAST_HOUR,
 )
 
 
@@ -25,7 +26,9 @@ def _forecast_filename(
     initialization_time: datetime,
     forecast_hour: int,
 ) -> str:
-    cycle = initialization_time.strftime("%H")
+    cycle = initialization_time.strftime(
+        "%H"
+    )
 
     return (
         f"gfs.t{cycle}z.pgrb2.0p25."
@@ -73,10 +76,21 @@ def build_nomads_params(
 
         "subregion": "",
 
-        "leftlon": str(bounds.min_lon),
-        "rightlon": str(bounds.max_lon),
-        "toplat": str(bounds.max_lat),
-        "bottomlat": str(bounds.min_lat),
+        "leftlon": str(
+            bounds.min_lon
+        ),
+
+        "rightlon": str(
+            bounds.max_lon
+        ),
+
+        "toplat": str(
+            bounds.max_lat
+        ),
+
+        "bottomlat": str(
+            bounds.min_lat
+        ),
     }
 
 
@@ -88,8 +102,12 @@ def default_output_path(
 ) -> Path:
     directory = (
         GFS_SUBSET_ROOT
-        / initialization_time.strftime("%Y%m%d")
-        / initialization_time.strftime("%H")
+        / initialization_time.strftime(
+            "%Y%m%d"
+        )
+        / initialization_time.strftime(
+            "%H"
+        )
     )
 
     filename = (
@@ -99,7 +117,106 @@ def default_output_path(
         f"{label}.grib2"
     )
 
-    return directory / filename
+    return (
+        directory
+        / filename
+    )
+
+
+def validate_subset_bounds(
+    bounds: GFSSubsetBounds,
+) -> None:
+    """
+    Validate a conventional non-wrapping geographic
+    subset request.
+
+    Phase 1 GFS subset ingestion expects longitude
+    bounds in the -180..180 convention and does not
+    currently support a bounding box that crosses the
+    international date line.
+    """
+
+    if (
+        bounds.min_lat
+        >= bounds.max_lat
+    ):
+        raise ValueError(
+            "min_lat must be less "
+            "than max_lat"
+        )
+
+    if (
+        bounds.min_lon
+        >= bounds.max_lon
+    ):
+        raise ValueError(
+            "min_lon must be less "
+            "than max_lon"
+        )
+
+    if not (
+        -90.0
+        <= bounds.min_lat
+        <= 90.0
+        and -90.0
+        <= bounds.max_lat
+        <= 90.0
+    ):
+        raise ValueError(
+            "latitude bounds must "
+            "be between -90 and 90"
+        )
+
+    if not (
+        -180.0
+        <= bounds.min_lon
+        <= 180.0
+        and -180.0
+        <= bounds.max_lon
+        <= 180.0
+    ):
+        raise ValueError(
+            "longitude bounds must "
+            "be between -180 and 180"
+        )
+
+
+def _validate_grib_response(
+    content: bytes,
+) -> None:
+    """
+    Validate that a NOMADS HTTP response contains
+    plausible GRIB data before it is written to disk.
+
+    This catches cases where an upstream service returns
+    an HTML or text error page with HTTP 200.
+    """
+
+    if not content:
+        raise RuntimeError(
+            "NOMADS returned an empty response."
+        )
+
+    if not content.startswith(
+        b"GRIB"
+    ):
+        preview = (
+            content[:120]
+            .decode(
+                "utf-8",
+                errors="replace",
+            )
+            .replace(
+                "\n",
+                " ",
+            )
+        )
+
+        raise RuntimeError(
+            "NOMADS returned HTTP success "
+            "but the response was not GRIB data: "
+            f"{preview!r}"
+        )
 
 
 def download_gfs_subset(
@@ -110,25 +227,60 @@ def download_gfs_subset(
     output_path: Path | None = None,
     timeout_seconds: int = 60,
 ) -> Path:
-    if initialization_time.tzinfo is None:
+    if (
+        initialization_time
+        .tzinfo
+        is None
+    ):
         raise ValueError(
-            "initialization_time must be timezone-aware"
+            "initialization_time must "
+            "be timezone-aware"
         )
 
     initialization_time = (
         initialization_time
-        .astimezone(timezone.utc)
+        .astimezone(
+            timezone.utc
+        )
     )
 
     if forecast_hour < 0:
         raise ValueError(
-            "forecast_hour cannot be negative"
+            "forecast_hour cannot "
+            "be negative"
         )
 
+    if (
+        forecast_hour
+        > MAX_FORECAST_HOUR
+    ):
+        raise ValueError(
+            "forecast_hour exceeds "
+            f"GFS maximum "
+            f"F{MAX_FORECAST_HOUR:03d}"
+        )
+
+    if timeout_seconds <= 0:
+        raise ValueError(
+            "timeout_seconds must "
+            "be greater than zero"
+        )
+
+    validate_subset_bounds(
+        bounds
+    )
+
     if output_path is None:
-        output_path = default_output_path(
-            initialization_time=initialization_time,
-            forecast_hour=forecast_hour,
+        output_path = (
+            default_output_path(
+                initialization_time=(
+                    initialization_time
+                ),
+
+                forecast_hour=(
+                    forecast_hour
+                ),
+            )
         )
 
     output_path.parent.mkdir(
@@ -136,27 +288,39 @@ def download_gfs_subset(
         exist_ok=True,
     )
 
-    params = build_nomads_params(
-        initialization_time=initialization_time,
-        forecast_hour=forecast_hour,
-        bounds=bounds,
+    params = (
+        build_nomads_params(
+            initialization_time=(
+                initialization_time
+            ),
+
+            forecast_hour=(
+                forecast_hour
+            ),
+
+            bounds=bounds,
+        )
     )
 
     response = requests.get(
         FILTER_URL,
+
         params=params,
+
         headers={
-            "User-Agent": USER_AGENT,
+            "User-Agent": (
+                USER_AGENT
+            ),
         },
+
         timeout=timeout_seconds,
     )
 
     response.raise_for_status()
 
-    if not response.content:
-        raise RuntimeError(
-            "NOMADS returned an empty response."
-        )
+    _validate_grib_response(
+        response.content
+    )
 
     output_path.write_bytes(
         response.content

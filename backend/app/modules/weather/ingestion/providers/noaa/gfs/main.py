@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from .controller import (
     ingest_missing_gfs_hours,
+    resolve_initialization_time,
 )
 
 from .downloader import (
@@ -17,7 +19,10 @@ from .remapper import (
 
 @dataclass(frozen=True)
 class GFSIngestionSummary:
+    initialization_time: datetime
+
     successful_hours: list[int]
+
     failures: list[
         tuple[
             int,
@@ -25,6 +30,7 @@ class GFSIngestionSummary:
             str,
         ]
     ]
+
     rows_written: int
 
     @property
@@ -60,14 +66,26 @@ def ingest_latest_gfs(
     available GFS cycle and processes only forecast
     hours that are missing from Aurion.
 
+    The selected initialization time is always returned
+    in the summary, including when no forecast hours
+    require ingestion.
+
     Transaction ownership remains with the caller.
     """
+
+    selection = (
+        resolve_initialization_time(
+            initialization_time=None,
+        )
+    )
 
     results = (
         ingest_missing_gfs_hours(
             conn=conn,
 
-            initialization_time=None,
+            initialization_selection=(
+                selection
+            ),
 
             start_forecast_hour=(
                 start_forecast_hour
@@ -112,7 +130,22 @@ def ingest_latest_gfs(
         for result in results
     )
 
+    for result in results:
+        if (
+            result.initialization_time
+            != selection.initialization_time
+        ):
+            raise RuntimeError(
+                "GFS range result initialization "
+                "time does not match the cycle "
+                "selected by the controller."
+            )
+
     return GFSIngestionSummary(
+        initialization_time=(
+            selection.initialization_time
+        ),
+
         successful_hours=(
             successful_hours
         ),
