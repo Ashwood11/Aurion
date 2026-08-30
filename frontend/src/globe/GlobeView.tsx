@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Globe from 'react-globe.gl';
 import { useGlobeData } from './useGlobeData';
+import { useVisibleLayers } from './layers/useVisibleLayers';
+
 import {
   getDataAltitudeForZoomBand,
   getLayerRenderCaps,
@@ -9,19 +11,21 @@ import {
   getZoomRadiusMultiplier,
   type LayerQuality,
 } from './helpers/zoom';
-import { filterVisibleGlobePoints } from './helpers/filterVisiblePoints';
-import {
-  sortAirportsByImportance,
-  sortPlanesByImportance,
-  sortPortsByImportance,
-} from './helpers/sortGlobePoints';
+
 import { createPlaneElement } from './helpers/createPlaneElement';
-import { reducePlanesForZoom } from './helpers/reducePlanesForZoom';
+
 import DebugPanel from './panels/DebugPanel';
 import AirportInfoPanel from './panels/AirportInfoPanel';
 import PortInfoPanel from './panels/PortInfoPanel';
 import PlaneInfoPanel from './panels/PlaneInfoPanel';
 import GlobeSettingsPanel from './panels/GlobeSettingsPanel';
+
+import {
+  matchesAirportFilter,
+  matchesPortFilter,
+  matchesMiningFilter,
+} from './layers/layerFilters';
+
 import type {
   AirportPoint,
   CountryFeature,
@@ -36,8 +40,6 @@ interface GlobeViewSettingsProps {
   showSettings?: boolean;
   setShowSettings?: (value: boolean) => void;
 }
-
-const MINING_RENDER_CAP = 3500;
 
 const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
   onCountrySelect,
@@ -75,15 +77,11 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
   const renderResumeTimeoutRef = useRef<number | null>(null);
   const lastCameraRef = useRef({ altitude: 2.8, lat: 0, lng: 0 });
 
-  const CAMERA_SETTLE_DELAY_MS = 180;
-
   const zoomBand = useMemo(() => getZoomBand(globeAltitude), [globeAltitude]);
-
   const renderCaps = useMemo(
     () => getLayerRenderCaps(zoomBand, layerQuality),
     [zoomBand, layerQuality]
   );
-
   const dataAltitude = useMemo(() => getDataAltitudeForZoomBand(zoomBand), [zoomBand]);
 
   const {
@@ -101,18 +99,26 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
   const showPlaneLayers = selectedOptions.some((id) => id.startsWith('planes-'));
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       const pov = globeRef.current?.pointOfView?.();
       if (!pov) return;
 
       const nextAltitude =
-        typeof pov.altitude === 'number' ? pov.altitude : lastCameraRef.current.altitude;
+        typeof pov.altitude === 'number'
+          ? pov.altitude
+          : lastCameraRef.current.altitude;
 
-      const nextLat = typeof pov.lat === 'number' ? pov.lat : lastCameraRef.current.lat;
-      const nextLng = typeof pov.lng === 'number' ? pov.lng : lastCameraRef.current.lng;
+      const nextLat =
+        typeof pov.lat === 'number'
+          ? pov.lat
+          : lastCameraRef.current.lat;
+
+      const nextLng =
+        typeof pov.lng === 'number'
+          ? pov.lng
+          : lastCameraRef.current.lng;
 
       const last = lastCameraRef.current;
-
       const zoomChanged = Math.abs(nextAltitude - last.altitude) > 0.01;
       const cameraMoved =
         Math.abs(nextLat - last.lat) > 0.02 ||
@@ -128,7 +134,7 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
         renderResumeTimeoutRef.current = window.setTimeout(() => {
           setPausePointRendering(false);
           setViewportTick((v) => v + 1);
-        }, CAMERA_SETTLE_DELAY_MS);
+        }, 180);
       }
 
       if (zoomChanged || cameraMoved) {
@@ -146,7 +152,7 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
     }, 120);
 
     return () => {
-      clearInterval(interval);
+      window.clearInterval(interval);
 
       if (renderResumeTimeoutRef.current) {
         window.clearTimeout(renderResumeTimeoutRef.current);
@@ -160,96 +166,42 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const visibleAirportPoints = useMemo(() => {
-    if (!showAirportLayers) return [];
+  const filteredAirportPoints = useMemo(() => {
+    return airportPoints.filter((point) =>
+      matchesAirportFilter(point, selectedOptions)
+    );
+  }, [airportPoints, selectedOptions]);
 
-    const visible = filterVisibleGlobePoints({
-      points: airportPoints,
-      globe: globeRef.current,
-      container: containerRef.current,
-      viewLat,
-      viewLng,
-      margin: 20,
-    });
+  const filteredPortPoints = useMemo(() => {
+    return portPoints.filter((point) =>
+      matchesPortFilter(point, selectedOptions)
+    );
+  }, [portPoints, selectedOptions]);
 
-    return sortAirportsByImportance(visible).slice(0, renderCaps.airports);
-  }, [
-    airportPoints,
-    showAirportLayers,
+  const filteredMiningAssetPoints = useMemo(() => {
+    return miningAssetPoints.filter((point) =>
+      matchesMiningFilter(point, selectedOptions)
+    );
+  }, [miningAssetPoints, selectedOptions]);
+
+  const {
+    visibleAirports: visibleAirportPoints,
+    visiblePorts: visiblePortPoints,
+    visibleMining: visibleMiningAssetPoints,
+    visiblePlanes: visiblePlanePoints,
+  } = useVisibleLayers({
+    globeRef,
+    containerRef: containerRef.current,
     viewLat,
     viewLng,
-    viewportTick,
-    renderCaps.airports,
-  ]);
-
-  const visiblePortPoints = useMemo(() => {
-    if (!showPortLayers) return [];
-
-    const visible = filterVisibleGlobePoints({
-      points: portPoints,
-      globe: globeRef.current,
-      container: containerRef.current,
-      viewLat,
-      viewLng,
-      margin: 20,
-    });
-
-    return sortPortsByImportance(visible).slice(0, renderCaps.ports);
-  }, [
-    portPoints,
-    showPortLayers,
-    viewLat,
-    viewLng,
-    viewportTick,
-    renderCaps.ports,
-  ]);
-
-  const visibleMiningAssetPoints = useMemo(() => {
-    if (!showMiningLayers) return [];
-
-    const visible = filterVisibleGlobePoints({
-      points: miningAssetPoints,
-      globe: globeRef.current,
-      container: containerRef.current,
-      viewLat,
-      viewLng,
-      margin: 20,
-    });
-
-    return visible
-      .sort((a, b) => (b.importanceScore ?? 0) - (a.importanceScore ?? 0))
-      .slice(0, MINING_RENDER_CAP);
-  }, [
-    miningAssetPoints,
-    showMiningLayers,
-    viewLat,
-    viewLng,
-    viewportTick,
-  ]);
-
-  const visiblePlanePoints = useMemo(() => {
-    if (!showPlaneLayers) return [];
-
-    const frontFacingVisible = filterVisibleGlobePoints({
-      points: planePoints,
-      globe: globeRef.current,
-      container: containerRef.current,
-      viewLat,
-      viewLng,
-      margin: 20,
-    });
-
-    const reduced = reducePlanesForZoom(frontFacingVisible, globeAltitude);
-    return sortPlanesByImportance(reduced).slice(0, renderCaps.planes);
-  }, [
-    planePoints,
-    showPlaneLayers,
-    viewLat,
-    viewLng,
-    viewportTick,
     globeAltitude,
-    renderCaps.planes,
-  ]);
+    viewportTick,
+    renderCaps,
+    airports: showAirportLayers ? filteredAirportPoints : [],
+    ports: showPortLayers ? filteredPortPoints : [],
+    mining: showMiningLayers ? filteredMiningAssetPoints : [],
+    planes: showPlaneLayers ? planePoints : [],
+  });
 
   const selectedHighlights = useMemo<GlobePoint[]>(() => {
     const highlights: GlobePoint[] = [];
@@ -323,10 +275,7 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
     ];
   }, [showPlaneLayers, activePlaneForRoute]);
 
-  const selectedCountryName = useMemo(
-    () => selectedCountry?.properties?.NAME ?? null,
-    [selectedCountry]
-  );
+  const selectedCountryName = selectedCountry?.properties?.NAME ?? null;
 
   const activeAirport = selectedAirport ?? hoverAirport;
   const activePort = selectedPort ?? hoverPort;
@@ -354,11 +303,10 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
         polygonSideColor={() => 'rgba(255,255,255,0.03)'}
         polygonStrokeColor={() => 'rgba(255,255,255,0.7)'}
         polygonAltitude={(d) =>
-          (d as CountryFeature).properties?.NAME === hoverCountry?.properties?.NAME
+          (d as CountryFeature).properties?.NAME === hoverCountry?.properties?.NAME ||
+          (d as CountryFeature).properties?.NAME === selectedCountry?.properties?.NAME
             ? 0.008
-            : (d as CountryFeature).properties?.NAME === selectedCountry?.properties?.NAME
-              ? 0.008
-              : 0.006
+            : 0.006
         }
         onPolygonHover={(polygon) =>
           setHoverCountry((polygon as CountryFeature | null) ?? null)
@@ -441,9 +389,9 @@ const GlobeView: React.FC<GlobeViewProps & GlobeViewSettingsProps> = ({
 
             setSelectedAirport(airport);
             setHoverAirport(airport);
+            setSelectedPort(null);
             setSelectedMiningAsset(null);
             setSelectedPlane(null);
-            setSelectedPort(null);
             setSelectedCountry(null);
 
             globeRef.current?.pointOfView(

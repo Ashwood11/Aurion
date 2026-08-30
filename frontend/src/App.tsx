@@ -3,6 +3,7 @@ import MainShell from './app/layout/MainShell';
 import LeftPanel from './app/layout/LeftPanel';
 import RightPanel from './app/layout/RightPanel';
 import GlobeView from './globe/GlobeView';
+import CommoditiesPage from './pages/CommoditiesPage';
 
 function App() {
   const [activeModule, setActiveModule] = useState('map');
@@ -15,6 +16,7 @@ function App() {
       { id: 'map', label: 'Globe', icon: '◈', accent: '#6366f1', status: 'LIVE' },
       { id: 'dashboard', label: 'Dashboard', icon: '◌', accent: '#22c55e' },
       { id: 'signals', label: 'Signals', icon: '◍', accent: '#f59e0b' },
+      { id: 'commodities', label: 'Commodities', icon: '◒', accent: '#14b8a6' },
       { id: 'assets', label: 'Assets', icon: '✈', accent: '#38bdf8' },
     ],
     []
@@ -56,6 +58,30 @@ function App() {
         ],
       },
       {
+        id: 'mining',
+        label: 'Mining Assets',
+        icon: '⛏',
+        color: '#facc15',
+        options: [
+          { id: 'mining-all', label: 'All Mining Assets' },
+          { id: 'mining-mines', label: 'Mines' },
+          { id: 'mining-smelters', label: 'Smelters' },
+          { id: 'mining-refineries', label: 'Refineries' },
+          { id: 'mining-plants', label: 'Plants' },
+          { id: 'mining-mixed', label: 'Mixed Assets' },
+          { id: 'mining-copper', label: 'Copper' },
+          { id: 'mining-gold', label: 'Gold' },
+          { id: 'mining-iron', label: 'Iron Ore' },
+          { id: 'mining-coal', label: 'Coal' },
+          { id: 'mining-lithium', label: 'Lithium' },
+          { id: 'mining-nickel', label: 'Nickel' },
+          { id: 'mining-zinc', label: 'Zinc' },
+          { id: 'mining-cobalt', label: 'Cobalt' },
+          { id: 'mining-uranium', label: 'Uranium' },
+          { id: 'mining-ree', label: 'Rare Earths' },
+        ],
+      },
+      {
         id: 'planes',
         label: 'Planes',
         icon: '🛫',
@@ -63,7 +89,7 @@ function App() {
         options: [
           { id: 'planes-passenger', label: 'Passenger Flights' },
           { id: 'planes-cargo', label: 'Cargo Flights' },
-          { id: 'planes-private', label: 'Private Aircraft', description: 'Business and private aviation' },
+          { id: 'planes-private', label: 'Private Aircraft' },
         ],
       },
     ],
@@ -84,10 +110,11 @@ function App() {
         return prev.filter((id) => id !== groupId);
       }
 
-      if (groupId === 'ports') {
-        setSelectedOptions((opts) =>
-          Array.from(new Set([...opts.filter((id) => !id.startsWith('ports-')), 'ports-all']))
-        );
+      if (groupId === 'ports' || groupId === 'mining') {
+        setSelectedOptions((opts) => [
+          ...opts.filter((id) => !id.startsWith(`${groupId}-`)),
+          `${groupId}-all`,
+        ]);
       } else {
         setSelectedOptions((opts) => Array.from(new Set([...opts, ...optionIds])));
       }
@@ -100,17 +127,22 @@ function App() {
     setSelectedOptions((prev) => {
       const isActive = prev.includes(optionId);
 
-      if (optionId === 'ports-all') {
+      if (optionId === 'ports-all' || optionId === 'mining-all') {
+        const prefix = optionId.split('-')[0];
+
         if (isActive) {
-          return prev.filter((id) => id !== 'ports-all');
+          return prev.filter((id) => id !== optionId);
         }
-        return [...prev.filter((id) => !id.startsWith('ports-')), 'ports-all'];
+
+        return [...prev.filter((id) => !id.startsWith(`${prefix}-`)), optionId];
       }
 
-      if (optionId.startsWith('ports-')) {
+      if (optionId.startsWith('ports-') || optionId.startsWith('mining-')) {
+        const prefix = optionId.split('-')[0];
+
         const next = isActive
           ? prev.filter((id) => id !== optionId)
-          : [...prev.filter((id) => id !== 'ports-all'), optionId];
+          : [...prev.filter((id) => id !== `${prefix}-all`), optionId];
 
         return Array.from(new Set(next));
       }
@@ -136,20 +168,37 @@ function App() {
         />
       }
       center={
-        <GlobeView
-          onCountrySelect={setSelectedCountry}
-          selectedOptions={selectedOptions}
-        />
+        activeModule === 'commodities' ? (
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              paddingLeft: 72,
+              boxSizing: 'border-box',
+              overflow: 'auto',
+              minHeight: 0,
+            }}
+          >
+            <CommoditiesPage />
+          </div>
+        ) : (
+          <GlobeView
+            onCountrySelect={setSelectedCountry}
+            selectedOptions={selectedOptions}
+          />
+        )
       }
       right={
-        <RightPanel
-          groups={layerGroups}
-          selectedGroups={selectedGroups}
-          selectedOptions={selectedOptions}
-          onToggleGroup={toggleGroup}
-          onToggleOption={toggleOption}
-          onClearAll={clearAllLayers}
-        />
+        activeModule === 'map' ? (
+          <RightPanel
+            groups={layerGroups}
+            selectedGroups={selectedGroups}
+            selectedOptions={selectedOptions}
+            onToggleGroup={toggleGroup}
+            onToggleOption={toggleOption}
+            onClearAll={clearAllLayers}
+          />
+        ) : null
       }
       bottom={null}
     />
